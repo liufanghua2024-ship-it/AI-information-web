@@ -1,4 +1,6 @@
-let state = {articles: [], companies: [], runs: [], settings: {}}, view = 'daily', demo = false;
+let state = {articles: [], companies: [], runs: [], settings: {}}, view = 'daily', demo = false, pageNumber = 1;
+const pageSize = 30;
+const sourceNames = {database:'数据库公开资讯', report:'券商与咨询公开报告', industry:'行业专业媒体', wechat:'微信公众号公开索引', official:'政府与监管', international:'海外专业媒体', news:'综合新闻与企业动态'};
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const date = s => s ? new Date(s).toLocaleString('zh-CN', {timeZone:'Asia/Shanghai', hour12:false}) : '来源未提供发布日期';
@@ -13,15 +15,18 @@ async function api(path, body) {
 function empty(title, text) { return `<div class="empty"><div class="empty-icon">◎</div><h3>${esc(title)}</h3><p>${esc(text)}</p></div>`; }
 function card(a) {
   const demoItem = a.id === 'demo';
-  return `<article class="article"><div class="article-top"><span class="tag">${esc(a.category)}</span><span>${esc(a.source)}</span><span>${esc(date(a.published_at))}</span></div><h3>${demoItem?esc(a.title):`<a href="${esc(a.url)}" target="_blank" rel="noopener noreferrer">${esc(a.title)}</a>`}</h3><span class="badge">${demoItem?'虚构演示':'来源单一 · 未核验原文'}</span><p><b>岗位方向（规则推断）：</b>${esc(a.roles)}</p><p><b>建议行动：</b>${esc(a.action)}</p><div class="article-actions">${demoItem?'<span>演示内容不会保存到数据库</span>':`<a href="${esc(a.url)}" target="_blank" rel="noopener noreferrer">查看来源 ↗</a><button class="subtle" data-save="${esc(a.id)}" data-saved="${a.saved?'false':'true'}">${a.saved?'★ 已收藏':'☆ 收藏线索'}</button>`}</div></article>`;
+  return `<article class="article"><div class="article-top"><span class="tag">${esc(a.category)}</span><span>${esc(a.publisher || a.source.split(' | ')[0])}</span><span>${esc(date(a.published_at))}</span><span>${esc(sourceNames[a.source_type] || '')}</span></div><h3>${demoItem?esc(a.title):`<a href="${esc(a.url)}" target="_blank" rel="noopener noreferrer">${esc(a.title)}</a>`}</h3><span class="badge">${demoItem?'虚构演示':'来源单一 · 未核验原文'}</span><p><b>岗位方向（规则推断）：</b>${esc(a.roles)}</p><p><b>建议行动：</b>${esc(a.action)}</p><div class="article-actions">${demoItem?'<span>演示内容不会保存到数据库</span>':`<a href="${esc(a.url)}" target="_blank" rel="noopener noreferrer">查看来源 ↗</a><button class="subtle" data-save="${esc(a.id)}" data-saved="${a.saved?'false':'true'}">${a.saved?'★ 已收藏':'☆ 收藏线索'}</button>`}</div></article>`;
 }
 function render() {
-  const names = {daily:'今日日报', companies:'企业关注', saved:'线索收藏', history:'历史追踪'};
+  const names = {daily:'情报资料库', companies:'企业关注', saved:'线索收藏', sources:'来源覆盖', history:'历史追踪'};
   $('page-title').textContent = names[view];
   $('date-line').textContent = new Date().toLocaleDateString('zh-CN', {timeZone:'Asia/Shanghai',year:'numeric',month:'long',day:'numeric',weekday:'long'}) + ' · 北京时间';
   document.querySelectorAll('[data-view]').forEach(b => b.classList.toggle('active', b.dataset.view === view));
   const recent = a => a.published_at && Date.now()-new Date(a.published_at).getTime() >= 0 && Date.now()-new Date(a.published_at).getTime() <= 86400000;
-  $('stat-today').textContent = state.articles.filter(recent).length;
+  const cutoff = new Date(state.coverage_start || Date.now()-92*86400000).getTime();
+  const inQuarter = a => a.published_at && new Date(a.published_at).getTime() >= cutoff && new Date(a.published_at).getTime() <= Date.now();
+  $('stat-today').textContent = state.articles.filter(inQuarter).length.toLocaleString();
+  $('stat-coverage').textContent = `近 24 小时 ${state.articles.filter(recent).length} 条 · 不含日期不明`;
   $('stat-companies').textContent = state.companies.length;
   $('stat-saved').textContent = state.articles.filter(a=>a.saved).length;
   const run = state.runs[0];
@@ -32,19 +37,33 @@ function render() {
   const listView = ['daily','saved'].includes(view);
   $('controls').hidden = !listView;
   $('demo').hidden = !listView;
+  $('coverage-note').hidden = !listView;
+  $('pagination').hidden = !listView;
+  $('pagination').innerHTML = '';
+  $('coverage-note').textContent = `滚动近 3 个月 · 按周分段公开检索，非全量收录。公众号仅限公开可索引文章。日期不明的内容请选“全部”。${state.coverage?.truncated?' 当前导出已达 20,000 条上限。':''}`;
   $('demo').textContent = demo ? '退出界面演示' : '查看界面演示';
-  $('section-title').textContent = {daily:'值得你关注的信号', saved:'你收藏的业务线索', companies:'建立你的企业雷达', history:'每一次采集，都有记录'}[view];
-  $('section-description').textContent = {daily:'新闻线索与岗位建议分开呈现，所有推断均需进一步核实。',saved:'收藏保留原始来源与采集信息；不代表已确认的招聘委托。',companies:'按新闻标题中的企业名称匹配，建议使用常见简称或英文名。',history:'查看采集时间、来源状态和新增数量。重复 URL 不会重复入库。'}[view];
+  $('section-title').textContent = {daily:'最近 3 个月，值得关注的信号', saved:'你收藏的业务线索', companies:'建立你的企业雷达', sources:'看清信息从哪里来', history:'每一次采集，都有记录'}[view];
+  $('section-description').textContent = {daily:'按时间、来源和事件类型筛选；新闻线索与人才推断分开呈现。',saved:'收藏保留原始来源与采集信息；不代表已确认的招聘委托。',companies:'按新闻标题中的企业名称匹配，建议使用常见简称或英文名。',sources:'来源类型按 RSS 发布者信息识别，检索主题不等于实际文章来源。',history:'查看采集时间、来源状态和新增数量。重复 URL 不会重复入库。'}[view];
   if (view === 'companies') {
     $('content').innerHTML = `<form id="company-form" class="company-form"><input id="company-name" maxlength="80" placeholder="输入企业名称，例如：恒瑞、百济神州、AstraZeneca" aria-label="企业名称" required><button class="primary">添加关注</button></form>` + (state.companies.length ? state.companies.map(name=>`<div class="company-row"><div><b>${esc(name)}</b><p>已有 ${state.articles.filter(a=>a.title.toLowerCase().includes(name.toLowerCase())).length} 条标题匹配资讯</p></div><button class="subtle" data-remove="${esc(name)}">取消关注</button></div>`).join('') : empty('从你熟悉的企业开始','添加目标客户，随后在日报中开启“只看关注企业”。'));
     $('company-form').onsubmit = async e => {e.preventDefault(); await mutate('/api/company',{name:$('company-name').value});};
+  } else if (view === 'sources') {
+    const counts = {};
+    state.articles.forEach(a=>{const key=a.source_type||'news';counts[key]=(counts[key]||0)+1;});
+    const groups = {};
+    (state.runs[0]?.results||[]).forEach(r=>{const key=r.source.split(' | ')[0];const g=groups[key]||(groups[key]={windows:0,failed:0,found:0,capped:0});g.windows++;g.failed+=r.ok?0:1;g.found+=r.found||0;g.capped+=r.at_search_limit?1:0;});
+    $('content').innerHTML = '<div class="coverage-note">微信公众号没有通用的全量公开订阅接口。本站检索公开索引及行业媒体相关线索，不登录微信、不绕过访问验证；同名媒体和公众号不能视为同一个来源。单个搜索窗口最多返回约 100 条，命中上限的窗口可能有遗漏。</div>' + Object.entries(sourceNames).map(([key,name])=>`<div class="company-row"><b>${esc(name)}</b><span>${counts[key]||0} 条${key==='wechat'?'（公开索引）':''}</span></div>`).join('') + (state.source_catalog||[]).map(g=>`<div class="run"><h3>${esc(g.group)}</h3><p>${g.names.map(esc).join(' · ')}</p><p>${esc(g.method)}</p></div>`).join('') + '<h3>最近一次采集：检索覆盖</h3>' + Object.entries(groups).map(([name,g])=>`<div class="company-row"><div><b>${esc(name)}</b><p>${g.windows} 个窗口 · 命中 ${g.found} 条（含重复） · ${g.failed} 个窗口失败${g.capped?` · ${g.capped} 个窗口达到返回上限`:''}</p></div></div>`).join('');
   } else if (view === 'history') {
     $('content').innerHTML = state.runs.length ? state.runs.map(r=>`<div class="run"><b>${esc(date(r.started_at))}</b><p>${r.finished_at?'已结束':'未结束（可能正在采集或上次服务中断）'} · 新增 ${r.added} 条</p><ul>${r.results.map(s=>`<li class="${s.ok?'':'error-text'}">${esc(s.source)}：${s.ok?`读取 ${s.found} 条，新增 ${s.added} 条`:'失败 — '+esc(s.error)}</li>`).join('')}</ul></div>`).join('') : empty('还没有采集记录','点击“立即采集”，任务结果会保存在这里。');
   } else {
-    const text = $('search').value.trim().toLowerCase(), category=$('category').value, hours=$('period').value;
+    const text = $('search').value.trim().toLowerCase(), category=$('category').value, hours=$('period').value, sourceType=$('source-type').value;
     let rows = demo ? sample : state.articles.filter(a=>view!=='saved'||a.saved);
-    rows = rows.filter(a=>(!text||[a.title,a.roles,a.source].join(' ').toLowerCase().includes(text)) && (!category||a.category===category) && (hours==='all'||(a.published_at && Date.now()-new Date(a.published_at).getTime()>=0 && Date.now()-new Date(a.published_at).getTime()<=Number(hours)*3600000)) && (!$('followed').checked||state.companies.some(n=>a.title.toLowerCase().includes(n.toLowerCase()))));
-    $('content').innerHTML = (demo?'<div class="demo-label">界面演示模式：以下事件完全虚构，不代表真实新闻或招聘需求。</div>':'') + (rows.length ? rows.map(card).join('') : empty(view==='saved'?'暂时没有匹配的收藏':'暂无匹配的情报', state.articles.length?'尝试扩大时间范围、调整关键词或关闭“只看关注企业”。':'点击“立即采集”获取公开 RSS。采集失败时请在历史追踪中查看原因；也可查看明确标注的界面演示。'));
+    rows = rows.filter(a=>(!text||[a.title,a.roles,a.source,a.publisher].join(' ').toLowerCase().includes(text)) && (!category||a.category===category) && (!sourceType||(a.source_type||'news')===sourceType) && (hours==='all'||(hours==='3m'?inQuarter(a):(a.published_at && Date.now()-new Date(a.published_at).getTime()>=0 && Date.now()-new Date(a.published_at).getTime()<=Number(hours)*3600000))) && (!$('followed').checked||state.companies.some(n=>a.title.toLowerCase().includes(n.toLowerCase()))));
+    const pages=Math.max(1,Math.ceil(rows.length/pageSize));pageNumber=Math.min(pageNumber,pages);
+    const visible=rows.slice((pageNumber-1)*pageSize,pageNumber*pageSize);
+    $('content').innerHTML = (demo?'<div class="demo-label">界面演示模式：以下事件完全虚构，不代表真实新闻或招聘需求。</div>':'') + (rows.length ? visible.map(card).join('') : empty(view==='saved'?'暂时没有匹配的收藏':'暂无匹配的情报', state.articles.length?'尝试扩大时间范围、调整来源或关键词，或关闭“只看关注企业”。公众号公开索引可能没有有效结果，详细状态见“来源覆盖”。':'点击“立即采集”获取公开 RSS。采集失败时请在历史追踪中查看原因；也可查看明确标注的界面演示。'));
+    $('pagination').innerHTML=`<span>共 ${rows.length.toLocaleString()} 条 · 第 ${pageNumber} / ${pages} 页</span><div><button id="previous-page" class="subtle" ${pageNumber===1?'disabled':''}>上一页</button> <button id="next-page" class="subtle" ${pageNumber===pages?'disabled':''}>下一页</button></div>`;
+    $('previous-page').onclick=()=>{pageNumber--;render();};$('next-page').onclick=()=>{pageNumber++;render();};
   }
 }
 async function refresh() {
@@ -52,8 +71,8 @@ async function refresh() {
   catch(e) { message('无法读取服务状态：'+e.message); }
 }
 async function mutate(path, body) {try {await api(path,body); await refresh();} catch(e){message(e.message);} }
-document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>{view=b.dataset.view;demo=false;render();});
-['search','category','period','followed'].forEach(id=>$(id).addEventListener(id==='search'?'input':'change',render));
+document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>{view=b.dataset.view;demo=false;pageNumber=1;render();});
+['search','category','period','source-type','followed'].forEach(id=>$(id).addEventListener(id==='search'?'input':'change',()=>{pageNumber=1;render();}));
 $('demo').onclick=()=>{demo=!demo;render();};
 $('collect').onclick=async()=>{try{await api('/api/collect',{});message(state.hosting==='github-pages'?'已刷新资讯快照。后台每日北京时间 08:00 自动采集，可能延迟；可在历史追踪查看最近结果。':'采集已提交，请稍候。各来源的成功或失败都会显示在历史追踪。',true);await refresh();}catch(e){message(e.message);}};
 $('schedule-form').onsubmit=async e=>{e.preventDefault();await mutate('/api/settings',{daily_time:$('daily-time').value});message('每日采集时间已保存（北京时间）。服务需要保持运行。',true);};

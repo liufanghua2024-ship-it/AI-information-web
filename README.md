@@ -2,11 +2,19 @@
 
 ## 不购买服务器的发布方式
 
-仓库包含 GitHub Pages 发布流程 `.github/workflows/daily-pages.yml`。在 GitHub 仓库 Settings → Pages → Build and deployment 中选择 GitHub Actions，再到 Actions 运行 `Daily healthcare intelligence`。需要 GitHub 账户允许该仓库使用 Pages 和 Actions；私有仓库的可用性取决于账户计划。此环境尚未验证外部部署。
+仓库包含 GitHub Pages 发布流程 `.github/workflows/daily-pages.yml`。在 GitHub 仓库 Settings → Pages → Build and deployment 中选择 GitHub Actions，再到 Actions 运行 `Daily healthcare intelligence`。需要 GitHub 账户允许该仓库使用 Pages 和 Actions；私有仓库的可用性取决于账户计划。网站已于 2026-10-26 验证发布。
 
 公开资讯版每天北京时间 08:00 由 Actions 采集（平台可能延迟），不依赖本地服务一直运行。公开网页及 `data.json` 仅含公开新闻和采集结果，关注企业与收藏保存在当前浏览器，不跨设备同步。页面不提供公开写入接口。没有模型 Key 时仍为规则分析。GitHub 定时工作流在长期无活动的公开仓库中可能被暂停，届时需在 Actions 中重新启用。
 
-本地构建验证：`python scripts/publish_site.py`；输出 `.local/site/`。默认不会触发采集，添加 `--collect` 才会联网。
+本地构建验证：`python scripts/publish_site.py`；输出 `.local/site/`。默认不会触发采集，添加 `--collect` 才会联网。添加 `--backfill` 可按周回溯最近三个日历月。第一次新版本构建自动回溯，每日通常增量检索近七天，每周日完整回溯，并合并上次公开快照、清理窗口外日期明确的文章。Actions 手动运行也可勾选 backfill。
+
+## 来源与三个月历史
+
+采用 22 组主题 / 来源检索，加 5 个海外 RSS 来源。覆盖用户指定的四类渠道：国内外监管、专业数据库公开资讯、行业媒体、公众号及券商咨询公开报告。`app.SOURCE_CATALOG` 是目标渠道清单，不代表全部已连接数据库；`来源覆盖` 页面提供实际命中量、来源类型、失败窗口与返回上限提示。
+
+三个日历月按北京时间起始日零时计算，月末自动夹取有效日期，不使用固定 90 天代替。公开搜索每个窗口最多约 100 条，并非全量档案。微信公众号只收录公开索引中有有效标题的文章；名称匹配的媒体转载不冒充公众号原文。付费库、登录内容及付费研报不采集，未接入商业数据库 API。记录 `<source>` 发布者信息，区分检索渠道与实际发布者，监管结论仍需打开官方原文核实。
+
+默认展示三个月内日期明确的资讯，可切换 24 小时、七天或全部（含日期不明），并按来源类型筛选；每页 30 条。日期缺失或缺少时区时不擅自补日期；它们不计入“三个月资讯”。公开快照最多导出 20,000 条，达到上限时页面显示提示。关注和收藏在重新采集与合并时保留，公开快照不包含个人收藏数据。
 
 面向医药大健康猎头的中文 Web 原型。Python 3.11+，标准库实现，无第三方依赖，无需 API Key。
 
@@ -21,9 +29,9 @@ python app.py
 
 ## 已实现
 
-- 今日日报：24 小时 / 7 天 / 全部范围、关键词和类型筛选。
-- 公开 RSS 采集：Google News 医药中文搜索聚合、Fierce Biotech、Fierce Pharma；来源可用性取决于网络和对方订阅服务。
-- 按 URL 去重，保留来源声称的发布日期与独立的采集时间。缺失发布日期的文章仅在“全部已采集”显示。
+- 情报资料库：三个月 / 24 小时 / 7 天 / 全部范围、关键词、类型、来源筛选和分页。
+- 公开采集：Google News 分段搜索聚合与海外医药 RSS；来源可用性取决于网络和对方订阅服务。
+- 按 URL 去重，保留来源声称的发布日期与独立的采集时间。缺失发布日期的文章仅在“全部（含日期不明）”显示。
 - 企业关注：按标题匹配名称，不是完整实体识别。
 - 线索收藏、采集历史、失败原因和每日采集时间持久化到 SQLite。
 - 服务运行时每天北京时间 08:00 调度（可修改）。当天错过时在启动后补采一次；停机期间不能运行。定时失败可手动重试。
@@ -41,13 +49,13 @@ node --check static/app.js
 python app.py --collect-once
 ```
 
-测试使用独立临时数据库和明确的网络模拟数据；真实采集需另运行最后一条命令。如果所有来源失败，该命令以非零状态退出。成功拉取但没有近 7 天资讯时允许零条结果，不代表已获取今日新闻。
+测试使用独立临时数据库和明确的网络模拟数据；真实采集需另运行最后一条命令。完整历史验证可用 `python app.py --collect-once --backfill`。如果所有来源失败，该命令以非零状态退出。成功拉取但没有窗口内资讯时允许零条结果，不代表已获取今日新闻。
 
 运行数据位于忽略目录 `.local/`，包括 `intel.sqlite3`。可使用 `INTEL_DATA_DIR` 指定其他目录，部署时需持久化并备份该目录。SQLite 和已安装文件可以保留，Web 进程及调度线程必须重新启动。请只启动一个服务实例，避免重复定时调度。
 
 ## 云环境网络
 
-采集需要 HTTPS 访问 `news.google.com`、`www.fiercebiotech.com`、`www.fiercepharma.com`。重定向到其他域名时应根据实际错误添加所需域名。不得关闭 TLS 验证。允许列表的保存不代表当前运行环境已经应用变更。
+采集需要 HTTPS 访问 `news.google.com`、`www.fiercebiotech.com`、`www.fiercepharma.com`、`www.statnews.com`、`www.biopharmadive.com`、`endpts.com`。重定向到其他域名时应根据实际错误添加所需域名。不得关闭 TLS 验证。允许列表的保存不代表当前运行环境已经应用变更。
 
 ## 后续开发
 

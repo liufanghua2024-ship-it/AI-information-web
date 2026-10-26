@@ -3,6 +3,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      backfill:
+        description: Backfill the last three months in weekly search windows
+        type: boolean
+        default: false
   schedule:
     - cron: '0 0 * * *'
 permissions:
@@ -23,7 +28,12 @@ jobs:
       - name: Run tests
         run: python -m unittest discover -s tests -v
       - name: Collect and build
-        run: python scripts/publish_site.py --collect --previous-url "https://${{ github.repository_owner }}.github.io/AI-information-web/data.json"
+        env:
+          BACKFILL: ${{ inputs.backfill }}
+        run: |
+          args=()
+          if [ "$BACKFILL" = "true" ]; then args+=(--backfill); fi
+          python scripts/publish_site.py --collect "${args[@]}" --previous-url "https://${{ github.repository_owner }}.github.io/AI-information-web/data.json"
       - uses: actions/upload-pages-artifact@v3
         with:
           path: .local/site
