@@ -60,6 +60,12 @@ class WorkflowTest(unittest.TestCase):
         rows = app.parse_feed(b'<rss><channel><item><title>Headline</title><link>https://example.org/no-date</link></item></channel></rss>', 'fixture')
         self.assertIsNone(rows[0][4])
 
+    def test_nested_feed_title_and_ambiguous_date(self):
+        rows = app.parse_feed(b'<rss><channel><item><title><a href="/news">Biotech funding</a></title><link>https://example.org/nested</link><pubDate>Oct 25, 2026 12:03pm</pubDate></item></channel></rss>', 'fixture')
+        self.assertEqual(rows[0][1], 'Biotech funding')
+        self.assertEqual(rows[0][6], '融资与交易')
+        self.assertIsNone(rows[0][4])
+
     def test_failure_is_reported_and_invalid_settings_rejected(self):
         with patch.object(app, 'fetch', side_effect=OSError('fixture network failure')):
             app.collect()

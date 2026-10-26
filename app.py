@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parent
 DATA = Path(os.environ.get('INTEL_DATA_DIR', str(ROOT / '.local')))
 TZ = timezone(timedelta(hours=8))
 SOURCES = [
-    ('医药中文资讯 · Google News 聚合', 'https://news.google.com/rss/search?' + urllib.parse.urlencode({'q': '医药 创新药 医疗器械 融资 招聘 when:7d', 'hl': 'zh-CN', 'gl': 'CN', 'ceid': 'CN:zh-Hans'})),
+    ('医药中文资讯 · Google News 聚合', 'https://news.google.com/rss/search?' + urllib.parse.urlencode({'q': '(创新药 OR 医疗器械 OR 生物医药) when:7d', 'hl': 'zh-CN', 'gl': 'CN', 'ceid': 'CN:zh-Hans'})),
     ('Fierce Biotech', 'https://www.fiercebiotech.com/rss/xml'),
     ('Fierce Pharma', 'https://www.fiercepharma.com/rss/xml'),
 ]
@@ -81,7 +81,10 @@ def parse_feed(payload, source):
     entries = root.findall('.//item') or root.findall('{http://www.w3.org/2005/Atom}entry')
     rows = []
     for item in entries[:100]:
-        title = (item.findtext('title') or item.findtext('{http://www.w3.org/2005/Atom}title') or '').strip()
+        title_element = item.find('title')
+        if title_element is None:
+            title_element = item.find('{http://www.w3.org/2005/Atom}title')
+        title = ''.join(title_element.itertext()).strip() if title_element is not None else ''
         link = item.findtext('link') or ''
         if not link:
             elem = item.find('{http://www.w3.org/2005/Atom}link')
