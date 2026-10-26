@@ -1,0 +1,39 @@
+name: Daily healthcare intelligence
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *'
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: healthcare-pages
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run tests
+        run: python -m unittest discover -s tests -v
+      - name: Collect and build
+        run: python scripts/publish_site.py --collect --previous-url "https://${{ github.repository_owner }}.github.io/AI-information-web/data.json"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .local/site
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
